@@ -1,4 +1,5 @@
 import numpy as np
+
 from .core import MTaseAnalyzer
 
 def _get_helix_number(self, h_start, h_end, path_map):

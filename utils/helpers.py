@@ -5,6 +5,7 @@ import subprocess
 
 def download_structure(identifier, source='pdb'):
     """Download structure and generate DSSP"""
+    identifier = identifier.strip()
     temp_dir = tempfile.mkdtemp()
     
     if source == 'pdb':

@@ -276,7 +276,7 @@ with main_col:
                 view = st.session_state.analyzer.visualize_3d_structure(
                     result, 
                     pdb_id=pdb_for_view,
-                    chain=st.session_state.selected_chain
+                    chain=motif['chain']  # ← ВОТ ТАК ПРАВИЛЬНО!
                 )
                 
                 if view:

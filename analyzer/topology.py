@@ -1,4 +1,7 @@
 from .core import MTaseAnalyzer
+import collections
+import numpy as np
+from scipy.spatial import distance_matrix
 
 def analyze_topology(self, motif_data=None):
     """АНАЛИЗ ТОПОЛОГИИ - ТВОЙ ПРОВЕРЕННЫЙ АЛГОРИТМ"""

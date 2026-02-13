@@ -3,6 +3,7 @@ import matplotlib.patches as patches
 from matplotlib.path import Path
 import numpy as np
 from .core import MTaseAnalyzer
+from scipy.spatial import distance_matrix
 
 def visualize_topology_from_analysis(self, result):
     """2D визуализация топологии"""
@@ -409,5 +410,6 @@ def visualize_topology_from_analysis(self, result):
     
     plt.tight_layout()
     plt.show()
+    return fig
 
 MTaseAnalyzer.visualize_topology_from_analysis = visualize_topology_from_analysis

@@ -1,5 +1,7 @@
 import numpy as np
+from scipy.spatial import distance_matrix
 from .core import MTaseAnalyzer
+import py3Dmol
 
 def visualize_3d_structure(self, result, pdb_id=None, chain=None):
     """3D визуализация с раскраской по топологии"""
@@ -7,11 +9,6 @@ def visualize_3d_structure(self, result, pdb_id=None, chain=None):
         print("Ошибка: нет результата анализа")
         return None
 
-    try:
-        import py3Dmol
-    except ImportError:
-        print("Ошибка: требуется установка py3Dmol: pip install py3Dmol")
-        return None
 
     if not self.motif_info:
         print("Ошибка: каталитический мотив не найден")
@@ -267,7 +264,7 @@ def visualize_3d_structure(self, result, pdb_id=None, chain=None):
     
     print(f"\n✅ 3D визуализация готова для цепи {chain}")
     print(f"{'='*60}")
-    view.show()
+
     
     return view
 

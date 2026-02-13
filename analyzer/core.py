@@ -9,7 +9,7 @@ class MTaseAnalyzer:
         self.CONTACT_DIST = contact_dist
         self.HELIX_RADIUS = helix_radius
         self.MAX_LOOP = max_loop
-        self.MOTIF_PATTERNS = [r"[SND]P[PL][YFW]", r"P[CSP]"]
+        self.MOTIF_PATTERNS = [r"[SND]P[PL][YFW]", r"P[CS]"]
         self.MIN_HELIX_LENGTH = min_helix_length
 
         self.res_data = {}
