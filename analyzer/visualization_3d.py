@@ -1,29 +1,26 @@
 import numpy as np
+import os
 from scipy.spatial import distance_matrix
 from .core import MTaseAnalyzer
 import py3Dmol
 
-def visualize_3d_structure(self, result, pdb_id=None, chain=None):
-    """3D визуализация с раскраской по топологии"""
+def visualize_3d_structure(self, result, pdb_id=None, chain=None, pdb_file=None):
+    """3D визуализация структуры с учетом цепи"""
+    print(f"🔍 3D DEBUG - pdb_id: {pdb_id}, chain: {chain}, pdb_file: {pdb_file}")
+    print(f"🔍 3D DEBUG - result keys: {result.keys() if result else 'None'}")
+    
     if not result:
         print("Ошибка: нет результата анализа")
         return None
-
 
     if not self.motif_info:
         print("Ошибка: каталитический мотив не найден")
         return None
 
-    motif_res = self.motif_info['res']
-    motif_chain = self.motif_info.get('chain', 'A')
-    motif_key = f"{motif_chain}:{motif_res}"
-    motif_text = self.motif_info['text']
+    motif_text = result.get('motif_text', 'Motif')
+    motif_res_num = result.get('motif_res', 0)
+    motif_chain = result.get('chain', 'A')
 
-    if motif_key in self.res_data:
-        motif_res_num = self.res_data[motif_key]['res_num']
-        motif_chain = self.res_data[motif_key]['chain']
-    else:
-        motif_res_num = motif_res
 
     if chain is None:
         chain = motif_chain
@@ -33,34 +30,27 @@ def visualize_3d_structure(self, result, pdb_id=None, chain=None):
 
     print(f"\n{'='*60}")
     print(f"3D ВИЗУАЛИЗАЦИЯ ТОПОЛОГИИ")
-    print(f"PDB: {pdb_id or 'локальный файл'}")
     print(f"Цепь анализа: '{chain}'")
     print(f"{'='*60}")
 
     # -----------------------------------------------------------------
-    # 1. СБОР ЭЛЕМЕНТОВ ДЛЯ РАСКРАСКИ - ТОЛЬКО ИЗ result!
+    # 1. СБОР ЭЛЕМЕНТОВ ДЛЯ РАСКРАСКИ
     # -----------------------------------------------------------------
     elements = []
     full_path = result['full_path']
     s4_idx = result['s4_idx']
     s4_pos = full_path.index(s4_idx)
     path_map = result['path_map']
-    strand_names = result['strand_names']
-    
-    # ✅ Используем result['strands'] - это уже отфильтрованные тяжи!
-    working_strands = result['strands']
-    
-    # ✅ Используем result['helices'] - это уже отфильтрованные спирали!
-    working_helices = result['helices']
+    strand_names = result.get('strand_names', {})
 
-    # Добавляем тяжи
+    # Добавляем тяжи из result['strands']
     for i, idx in enumerate(full_path):
         if idx in strand_names:
             s_name = strand_names[idx]
         else:
             s_name = f"S{4 - (i - s4_pos)}"
         
-        s_range = working_strands[idx]
+        s_range = result['strands'][idx]
         first_res_key = s_range[0]
         
         if first_res_key in self.res_data:
@@ -77,9 +67,8 @@ def visualize_3d_structure(self, result, pdb_id=None, chain=None):
                 })
                 print(f"  Тяж {s_name}: {s_start}-{s_end} (цепь {chain})")
 
-    # Добавляем спирали - БЕРЕМ ИЗ result['helices']!
-    unique_helices_3d = {}
-    for h_keys in working_helices:  # ✅ ИСПРАВЛЕНО!
+    # Добавляем спирали из result['helices']
+    for h_keys in result['helices']:
         if len(h_keys) < self.MIN_HELIX_LENGTH:
             continue
             
@@ -93,25 +82,20 @@ def visualize_3d_structure(self, result, pdb_id=None, chain=None):
                 continue
 
         if h_start in result['helix_sides']:
-            helix_key = f"{h_start}-{h_end}"
-            if helix_key not in unique_helices_3d:
-                side = result['helix_sides'][h_start]
-                num_part = self._get_helix_number(h_start, h_end, path_map)
-                name = self._get_helix_name(side, h_start, num_part)
-                unique_helices_3d[helix_key] = (name, side, h_start, h_end)
+            side = result['helix_sides'][h_start]
+            num_part = self._get_helix_number(h_start, h_end, path_map)
+            name = self._get_helix_name(side, h_start, num_part)
 
-    for helix_key, (name, side, h_start, h_end) in unique_helices_3d.items():
-        elements.append({
-            'name': name,
-            'start': h_start,
-            'end': h_end,
-            'type': 'helix',
-            'side': side,
-            'chain': chain
-        })
-        print(f"  Спираль {name}: {h_start}-{h_end} (цепь {chain}, {side})")
+            elements.append({
+                'name': name,
+                'start': h_start,
+                'end': h_end,
+                'type': 'helix',
+                'side': side,
+                'chain': chain
+            })
+            print(f"  Спираль {name}: {h_start}-{h_end} (цепь {chain}, {side})")
 
-    # Сортируем по номеру остатка
     elements.sort(key=lambda x: x['start'])
 
     if not elements:
@@ -126,27 +110,41 @@ def visualize_3d_structure(self, result, pdb_id=None, chain=None):
     hd_color = self.COLORS['Hd']
 
     # -----------------------------------------------------------------
-    # 3. СОЗДАНИЕ VIEWER
+    # 3. СОЗДАНИЕ VIEWER (С ПОДДЕРЖКОЙ PDB ФАЙЛОВ)
     # -----------------------------------------------------------------
     try:
-        if pdb_id:
+        if pdb_file and os.path.exists(pdb_file):
+            # Загружаем локальный PDB файл
+            with open(pdb_file, 'r') as f:
+                pdb_data = f.read()
+            view = py3Dmol.view(data=pdb_data, format='pdb')
+            print(f"  Загружен локальный PDB файл: {pdb_file}")
+        elif pdb_id:
+            # Загружаем по PDB ID
             view = py3Dmol.view(query=f'pdb:{pdb_id}')
             print(f"  Загружена структура PDB: {pdb_id}")
         else:
+            # Пустой viewer
             view = py3Dmol.view()
-            print("  Используется локальный PDB файл")
+            print("  Используется пустой viewer")
     except Exception as e:
-        print(f"  Ошибка загрузки PDB: {e}")
+        print(f"  Ошибка загрузки: {e}")
         return None
 
     # -----------------------------------------------------------------
-    # 4. БАЗОВЫЙ СТИЛЬ
+    # 4. БАЗОВЫЙ СТИЛЬ - ВЕСЬ БЕЛОК СВЕТЛО-СЕРЫЙ
     # -----------------------------------------------------------------
-    view.setStyle({'cartoon': {'color': '#e0e0e0', 'opacity': 0.2}})
-    view.setStyle({'chain': chain}, {'cartoon': {'color': '#e0e0e0', 'opacity': 0.6}})
+    # Сначала весь белок - светло-серый полупрозрачный
+    view.setStyle({'cartoon': {'color': '#cccccc', 'opacity': 0.2}})
+    
+    # Потом текущая цепь - чуть ярче (НО НЕ ПЕРЕЗАПИСЫВАЕМ!)
+    if chain:
+        view.addStyle({'chain': chain}, {'cartoon': {'color': '#e0e0e0', 'opacity': 0.6}})
+    
+    print(f"  Базовый стиль: весь белок светло-серый, цепь {chain} выделена")
 
     # -----------------------------------------------------------------
-    # 5. РАСКРАСКА ЭЛЕМЕНТОВ
+    # 5. РАСКРАСКА ЭЛЕМЕНТОВ ПО ТОПОЛОГИИ
     # -----------------------------------------------------------------
     for elem in elements:
         selector = {'chain': chain, 'resi': f"{elem['start']}-{elem['end']}"}
@@ -181,7 +179,7 @@ def visualize_3d_structure(self, result, pdb_id=None, chain=None):
                 'backgroundColor': 'white',
                 'backgroundOpacity': 0.8,
                 'borderColor': color,
-                'borderWidth': 2
+                'borderWidth': 1
             },
             {'chain': chain, 'resi': center_res}
         )
@@ -196,11 +194,6 @@ def visualize_3d_structure(self, result, pdb_id=None, chain=None):
                 'colorscheme': 'yellowCarbon',
                 'radius': 0.3,
                 'singleBonds': True
-            },
-            'sphere': {
-                'colorscheme': 'yellowCarbon',
-                'radius': 0.5,
-                'opacity': 0.6
             }
         }
     )
@@ -208,12 +201,12 @@ def visualize_3d_structure(self, result, pdb_id=None, chain=None):
     view.addLabel(
         f"{motif_text} ({motif_res_num})",
         {
-            'fontSize': 14,
+            'fontSize': 11,
             'fontColor': 'black',
             'backgroundColor': 'yellow',
-            'backgroundOpacity': 0.9,
+            'backgroundOpacity': 0.8,
             'borderColor': 'orange',
-            'borderWidth': 2
+            'borderWidth': 1
         },
         {'chain': chain, 'resi': motif_res_num}
     )
@@ -226,12 +219,12 @@ def visualize_3d_structure(self, result, pdb_id=None, chain=None):
         view.addLabel(
             'N',
             {
-                'fontSize': 16,
+                'fontSize': 14,
                 'fontColor': '#2c3e50',
                 'backgroundColor': 'yellow',
-                'backgroundOpacity': 0.9,
+                'backgroundOpacity': 0.8,
                 'borderColor': '#2c3e50',
-                'borderWidth': 2
+                'borderWidth': 1
             },
             {'chain': chain, 'resi': n_elem['start']}
         )
@@ -240,12 +233,12 @@ def visualize_3d_structure(self, result, pdb_id=None, chain=None):
         view.addLabel(
             'C',
             {
-                'fontSize': 16,
+                'fontSize': 14,
                 'fontColor': '#2c3e50',
                 'backgroundColor': 'yellow',
-                'backgroundOpacity': 0.9,
+                'backgroundOpacity': 0.8,
                 'borderColor': '#2c3e50',
-                'borderWidth': 2
+                'borderWidth': 1
             },
             {'chain': chain, 'resi': c_elem['end']}
         )
@@ -253,19 +246,26 @@ def visualize_3d_structure(self, result, pdb_id=None, chain=None):
     # -----------------------------------------------------------------
     # 8. НАСТРОЙКА ПРОСМОТРА
     # -----------------------------------------------------------------
-    view.zoomTo({'chain': chain})
-    
-    # Добавляем поверхность для контекста
-    view.addSurface(py3Dmol.VDW, {'opacity': 0.1, 'color': 'gray'})
-    
-    # Настройки отображения
+    if chain:
+        view.zoomTo({'chain': chain})
+
+    # Поворачиваем камеру согласно твоей системе координат
+    # north, east, up - из твоей coord_system
+    if result.get('coord_system'):
+        cs = result['coord_system']
+        # Устанавливаем ориентацию камеры
+        view.rotate(180, 'z')
+        view.rotate(0, 'x')
+        view.rotate(45, 'y')  # пример - настрой под свои оси
+        #view.rotate(45, 'x')
+
     view.setBackgroundColor('white')
     view.render()
     
     print(f"\n✅ 3D визуализация готова для цепи {chain}")
     print(f"{'='*60}")
-
     
     return view
 
+# Прикрепляем метод к классу
 MTaseAnalyzer.visualize_3d_structure = visualize_3d_structure

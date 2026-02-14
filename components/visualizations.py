@@ -31,15 +31,19 @@ def show_2d_topology(result, analyzer):
     else:
         st.warning("Could not generate 2D topology")
 
-def show_3d_topology(result, analyzer, pdb_id):
+def show_3d_topology(result, analyzer, pdb_id=None, pdb_file=None):
     """Показывает 3D структуру"""
+    print(f"🔵 show_3d_topology - pdb_id: {pdb_id}, pdb_file: {pdb_file}")
+    
     view = analyzer.visualize_3d_structure(
         result, 
         pdb_id=pdb_id,
-        chain=result['chain']
+        chain=result['chain'],
+        pdb_file=pdb_file
     )
     
     if view:
+        import tempfile
         with tempfile.NamedTemporaryFile(suffix='.html', delete=False) as f:
             view.write_html(f.name)
             with open(f.name, 'r') as f_html:

@@ -7,9 +7,11 @@ from components.visualizations import show_linear_topology, show_2d_topology, sh
 def show():
     # Проверяем, что нужно запустить анализ
     run_button = st.session_state.get('run_button', False)
+
     
     # Определяем источник структуры
     structure_source = None
+    source_type = None
     if st.session_state.get('input_type') == "PDB ID" and st.session_state.get('pdb_id'):
         structure_source = st.session_state.pdb_id
         source_type = 'pdb'
@@ -28,14 +30,32 @@ def show():
                 
                 # Загружаем структуру
                 if source_type == 'pdb':
-                    dssp_file = download_structure(structure_source, source='pdb')
+                    result_files = download_structure(structure_source, source='pdb')
+                    dssp_file = result_files['dssp']
+                    st.session_state.current_pdb_file = result_files['pdb']
+                    st.session_state.structure_source = 'pdb'
+                    
                 elif source_type == 'alphafold':
-                    dssp_file = download_structure(structure_source, source='alphafold')
-                else:  # upload
-                    dssp_file = parse_uploaded_file(structure_source)
+                    result_files = download_structure(structure_source, source='alphafold')
+                    if result_files is None:
+                        st.error(f"Failed to download AlphaFold structure for {structure_source}")
+                        return
+                    dssp_file = result_files['dssp']
+                    st.session_state.current_pdb_file = result_files['pdb']
+                    st.session_state.structure_source = 'alphafold'
+                    
+                elif source_type == 'upload':
+                    # parse_uploaded_file должна возвращать словарь!
+                    result_files = parse_uploaded_file(structure_source)
+                    if result_files is None:
+                        st.error("Failed to parse uploaded PDB file")
+                        return
+                    dssp_file = result_files['dssp']
+                    st.session_state.current_pdb_file = result_files['pdb']  # ← ТЕПЕРЬ РАБОТАЕТ!
+                    st.session_state.structure_source = 'upload'
                 
                 if not dssp_file:
-                    st.error(f"Failed to download {source_type} structure")
+                    st.error("Failed to load structure")
                     return
                 
                 # Загружаем DSSP
@@ -58,6 +78,7 @@ def show():
                     analyzer.MOTIF_PATTERNS = original_patterns
                 
                 # Анализируем каждый мотив
+                # Анализируем каждый мотив
                 results = {}
                 for motif in motifs:
                     chain = motif['chain']
@@ -65,8 +86,15 @@ def show():
                     motif_text = motif['text']
                     key = f"{chain}_{motif_text}_{motif_res}"
                     
+                    # ✅ ВАЖНО: передаем мотив в analyze_topology
                     result = analyzer.analyze_topology(motif_data=motif)
+                    
                     if result:
+                        # ✅ Сохраняем мотив в result
+                        result['motif'] = motif
+                        result['motif_text'] = motif_text
+                        result['motif_res'] = motif_res
+                        
                         results[key] = {
                             'motif': motif,
                             'result': result,
@@ -91,12 +119,12 @@ def show():
         
         if chains_info:
             selected_idx = st.selectbox(
-                "Choose chain:",
+                "Choose motif:",
                 range(len(chains_info)),
-                format_func=lambda i: chains_info[i]['Motif'],
-                key="chain_selector"
+                format_func=lambda i: f"{chains_info[i]['Chain']}: {chains_info[i]['Motif']}",
+                key="motif_selector"
             )
-            
+
             selected_key = chains_info[selected_idx]['key']
             data = st.session_state.results[selected_key]
             
@@ -111,5 +139,11 @@ def show():
             with tab2:
                 show_2d_topology(data['result'], st.session_state.analyzer)
             with tab3:
+                # Для 3D визуализации передаем и pdb_id, и pdb_file
                 pdb_for_view = st.session_state.pdb_id if st.session_state.get('input_type') == "PDB ID" else None
-                show_3d_topology(data['result'], st.session_state.analyzer, pdb_for_view)
+                show_3d_topology(
+                    data['result'], 
+                    st.session_state.analyzer, 
+                    pdb_id=pdb_for_view,
+                    pdb_file=st.session_state.get('current_pdb_file')
+                )

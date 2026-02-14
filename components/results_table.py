@@ -21,3 +21,4 @@ def show_results_table(results):
                 hide_index=True)
     
     return chains_info
+    
