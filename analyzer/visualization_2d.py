@@ -1,30 +1,28 @@
+import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from matplotlib.path import Path
-import numpy as np
-from .core import MTaseAnalyzer
 from scipy.spatial import distance_matrix
+from .core import MTaseAnalyzer
+import plotly.graph_objects as go
+import plotly.express as px
+from plotly.subplots import make_subplots
 
-def visualize_topology_from_analysis(self, result):
-    """2D визуализация топологии"""
+def visualize_topology_interactive(self, result):
+    """ИНТЕРАКТИВНАЯ 2D визуализация с Plotly"""
     if not result:
-        return
-
+        return None
+    
     full_path = result['full_path']
     path_map = result['path_map']
     strand_names = result['strand_names']
     s4_idx = result['s4_idx']
     s4_pos = full_path.index(s4_idx)
-    motif_res = self.motif_info['res']
-    motif_chain = result['chain']
-    motif_text = self.motif_info['text']
-
-    elements = []
     v4 = result['v4']
-
-    # -----------------------------------------------------------------
-    # 1. ДОБАВЛЯЕМ ТЯЖИ
-    # -----------------------------------------------------------------
+    
+    elements = []
+    
+    # Сбор элементов - ТЯЖИ
     for i, idx in enumerate(full_path):
         if idx in strand_names:
             s_name = strand_names[idx]
@@ -44,372 +42,677 @@ def visualize_topology_from_analysis(self, result):
             'index': i,
             'strand_idx': idx
         })
-
-    # -----------------------------------------------------------------
-    # 2. ДОБАВЛЯЕМ СПИРАЛИ
-    # -----------------------------------------------------------------
+    
+    # Сбор элементов - ВСЕ СПИРАЛИ (КАЖДАЯ УНИКАЛЬНАЯ!)
     unique_helices_2d = {}
+    helix_count = 0
     for h_keys in result['helices']:
         if len(h_keys) < self.MIN_HELIX_LENGTH:
             continue
-            
         h_start = self._get_res_num(h_keys[0])
         h_end = self._get_res_num(h_keys[-1])
-        helix_key = f"{h_start}-{h_end}"
-
-        if h_start in result['helix_sides'] and helix_key not in unique_helices_2d:
+        
+        if h_start in result['helix_sides']:
             side = result['helix_sides'][h_start]
-            dist = result['helix_distances'][h_start]
+            dist = result['helix_distances'].get(h_start, 0)
             num_part = self._get_helix_number(h_start, h_end, path_map)
             name = self._get_helix_name(side, h_start, num_part)
-
-            # Находим все тяжи в контакте со спиралью
+            if num_part:
+                display_name = f"{side}{num_part}_{h_start}"  # Hd1_153
+            else:
+                display_name = f"{side}_{h_start}"            # Hd_153
             contacts = []
             for i, idx in enumerate(full_path):
-                s_coords = np.array([self.res_data[key]['coords'] 
-                                    for key in result['strands'][idx]])
+                s_coords = np.array([self.res_data[key]['coords'] for key in result['strands'][idx]])
                 h_c = np.array([self.res_data[r]['coords'] for r in h_keys])
                 if np.min(distance_matrix(s_coords, h_c)) < self.HELIX_RADIUS:
                     contacts.append(idx)
+            
+            # УНИКАЛЬНЫЙ КЛЮЧ: имя + диапазон
+            helix_key = f"{name}_{h_start}_{h_end}"
+            if helix_key not in unique_helices_2d:
+                unique_helices_2d[helix_key] = (display_name, side, h_start, h_end, contacts, dist)
+                helix_count += 1
 
-            unique_helices_2d[helix_key] = (name, side, h_start, h_end, contacts, dist)
-
-    for helix_key, (name, side, h_start, h_end, contacts, dist) in unique_helices_2d.items():
+    print(f"Найдено {helix_count} спиралей для отображения")
+    
+    for helix_key, (display_name, side, h_start, h_end, contacts, dist) in unique_helices_2d.items():
         elements.append({
             'type': 'helix',
-            'name': name,
+            'name': display_name,
             'start': h_start,
             'end': h_end,
             'side': side,
             'strand_contacts': contacts,
             'distance': dist
         })
-
-    # -----------------------------------------------------------------
-    # 3. ОБЪЕДИНЕНИЕ СОСЕДНИХ СПИРАЛЕЙ
-    # -----------------------------------------------------------------
-    merged_elements = []
+    
     elements.sort(key=lambda x: x['start'])
-    i = 0
-    while i < len(elements):
-        if elements[i]['type'] == 'helix':
-            j = i
-            while j + 1 < len(elements) and elements[j+1]['type'] == 'helix':
-                if elements[j]['name'] == elements[j+1]['name']:
-                    # Проверяем 3D расстояние между спиралями
-                    dist_3d = float('inf')
-                    for h_keys in result['helices']:
-                        h1_start = self._get_res_num(h_keys[0])
-                        h1_end = self._get_res_num(h_keys[-1])
-                        if h1_start == elements[j]['start'] and h1_end == elements[j]['end']:
-                            for h2_keys in result['helices']:
-                                h2_start = self._get_res_num(h2_keys[0])
-                                h2_end = self._get_res_num(h2_keys[-1])
-                                if h2_start == elements[j+1]['start'] and h2_end == elements[j+1]['end']:
-                                    coord1 = self.res_data[h_keys[-1]]['coords']
-                                    coord2 = self.res_data[h2_keys[0]]['coords']
-                                    dist_3d = np.linalg.norm(coord1 - coord2)
-                                    break
-                            break
-                    if dist_3d <= 5.0:
-                        j += 1
-                    else:
-                        break
-                else:
-                    break
-                    
-            if j > i:
-                merged_helix = elements[i].copy()
-                merged_helix['start'] = min(e['start'] for e in elements[i:j+1])
-                merged_helix['end'] = max(e['end'] for e in elements[i:j+1])
-                merged_helix['merged'] = True
-                all_contacts = []
-                all_distances = []
-                for e in elements[i:j+1]:
-                    if 'strand_contacts' in e:
-                        all_contacts.extend(e['strand_contacts'])
-                    if 'distance' in e:
-                        all_distances.append(e['distance'])
-                merged_helix['strand_contacts'] = list(set(all_contacts))
-                merged_helix['distance'] = min(all_distances) if all_distances else 0
-                merged_elements.append(merged_helix)
-                i = j + 1
-            else:
-                merged_elements.append(elements[i])
-                i += 1
-        else:
-            merged_elements.append(elements[i])
-            i += 1
-    elements = merged_elements
-    elements.sort(key=lambda x: x['start'])
-
-    # -----------------------------------------------------------------
-    # 4. ПОЗИЦИОНИРОВАНИЕ ТЯЖЕЙ
-    # -----------------------------------------------------------------
+    
+    print(f"Всего элементов для отображения: {len(elements)}")
+    
+    # =================================================================
+    # ПОЗИЦИОНИРОВАНИЕ ПО ЦЕНТРУ МАСС
+    # =================================================================
     pos_map = {}
     strand_x_positions = {}
     strands = [e for e in elements if e['type'] == 'strand']
-
-    def get_strand_sort_key(strand):
-        name = strand['name']
-        if name.startswith('S-'):
-            return -int(name[2:])
+    
+    # Получаем центры тяжей
+    strand_centers = {}
+    for strand in strands:
+        idx = strand['strand_idx']
+        s_range = result['strands'][idx]
+        coords = np.array([self.res_data[key]['coords'] for key in s_range])
+        strand_centers[idx] = coords.mean(axis=0)
+    
+    strands_sorted = sorted(strands, key=lambda x: x['start'])
+    
+    # Вычисляем проекцию на ось цепи
+    if len(strands_sorted) > 1:
+        first_center = strand_centers[strands_sorted[0]['strand_idx']]
+        last_center = strand_centers[strands_sorted[-1]['strand_idx']]
+        chain_vector = last_center - first_center
+        chain_length = np.linalg.norm(chain_vector)
+        if chain_length > 0:
+            chain_direction = chain_vector / chain_length
         else:
-            return int(name[1:])
-
-    strands_sorted = sorted(strands, key=get_strand_sort_key)
-
-    x_pos = 0
+            chain_direction = np.array([1, 0, 0])
+    else:
+        chain_direction = np.array([1, 0, 0])
+        first_center = strand_centers[strands_sorted[0]['strand_idx']] if strands_sorted else np.array([0, 0, 0])
+    
+    # Проецируем центры на направление цепи
+    projections = []
     for strand in strands_sorted:
+        center = strand_centers[strand['strand_idx']]
+        vec = center - first_center
+        proj = np.dot(vec, chain_direction)
+        projections.append(proj)
+    
+    # Нормируем для 2D
+    min_proj = min(projections) if projections else 0
+    max_proj = max(projections) if projections else 1
+    scale_factor = 15.0
+    
+    # НЕ ЗЕРКАЛИМ ЗДЕСЬ!
+    for i, strand in enumerate(strands_sorted):
+        if max_proj > min_proj:
+            norm_proj = (projections[i] - min_proj) / (max_proj - min_proj) * scale_factor
+            # norm_proj = scale_factor - norm_proj  # НЕ ЗЕРКАЛИМ!
+        else:
+            norm_proj = (len(strands_sorted) - 1 - i) * 1.5
+            
         original_dir = strand['direction']
-        graph_dir = "DOWN" if original_dir == "UP" else "UP"
         pos_map[strand['name']] = {
-            'x': x_pos,
+            'x': norm_proj,
             'y': 1,
-            'direction': graph_dir,
             'original_direction': original_dir,
             'start': strand['start'],
-            'end': strand['end']
+            'end': strand['end'],
+            'type': 'strand',
+            'strand_idx': strand['strand_idx']
         }
-        strand_x_positions[strand['strand_idx']] = x_pos
-        x_pos += 1
-
-    # -----------------------------------------------------------------
-    # 5. ПОЗИЦИОНИРОВАНИЕ СПИРАЛЕЙ
-    # -----------------------------------------------------------------
+        strand_x_positions[strand['strand_idx']] = norm_proj
+    
+    # =================================================================
+    # ФУНКЦИЯ ДЛЯ ПРОВЕРКИ ПЕРЕСЕЧЕНИЙ
+    # =================================================================
+    def elements_intersect(pos1, pos2, threshold=1.0):
+        """Проверяет, пересекаются ли два элемента"""
+        dist = np.sqrt((pos1['x'] - pos2['x'])**2 + (pos1['y'] - pos2['y'])**2)
+        return dist < threshold
+    
+    # =================================================================
+    # РАЗНОСИМ ТЯЖИ, СОХРАНЯЯ ПРАВИЛЬНЫЙ ПОРЯДОК (ОТ БОЛЬШЕГО НОМЕРА К МЕНЬШЕМУ)
+    # =================================================================
+    # Создаем список тяжей
+    strand_positions = []
+    for name, data in pos_map.items():
+        if data['type'] == 'strand':
+            # Извлекаем номер из имени (S7, S6, S5, S4, S3, S2, S1, S0, S-1)
+            if name.startswith('S-'):
+                num = -int(name[2:])  # S-1 -> -1
+            else:
+                num = int(name[1:])    # S7 -> 7, S0 -> 0
+            
+            strand_positions.append({
+                'name': name,
+                'x': data['x'],
+                'y': data['y'],
+                'num': num,
+                'data': data
+            })
+    
+    # СОРТИРУЕМ ПО УБЫВАНИЮ ЧИСЛОВОГО НОМЕРА (ОТ БОЛЬШЕГО К МЕНЬШЕМУ)
+    # S7 (7) -> S6 (6) -> S5 (5) -> S4 (4) -> S3 (3) -> S2 (2) -> S1 (1) -> S0 (0) -> S-1 (-1)
+    strand_positions.sort(key=lambda x: x['num'], reverse=True)
+    
+    print(f"Правильный порядок тяжей (слева направо): {[s['name'] for s in strand_positions]}")
+    
+    # Разносим пересекающиеся тяжи, НО НЕ МЕНЯЕМ ПОРЯДОК!
+    moved = True
+    max_iterations = 50
+    iteration = 0
+    min_distance = 1.5
+    
+    while moved and iteration < max_iterations:
+        moved = False
+        iteration += 1
+        
+        # Проверяем только СОСЕДНИЕ тяжи в правильном порядке
+        for i in range(len(strand_positions) - 1):
+            current = strand_positions[i]
+            next_strand = strand_positions[i + 1]
+            
+            dist = next_strand['x'] - current['x']
+            
+            if dist < min_distance:
+                moved = True
+                overlap = min_distance - dist
+                current['x'] -= overlap / 2
+                next_strand['x'] += overlap / 2
+    
+    # Обновляем позиции тяжей
+    for sp in strand_positions:
+        pos_map[sp['name']]['x'] = sp['x']
+        strand_x_positions[pos_map[sp['name']]['strand_idx']] = sp['x']
+    
+    # =================================================================
+    # ЗЕРКАЛЬНОЕ ОТРАЖЕНИЕ - ПОСЛЕ РАЗНЕСЕНИЯ!
+    # =================================================================
+    all_x = [data['x'] for data in pos_map.values() if data['type'] == 'strand']
+    if all_x:
+        min_x = min(all_x)
+        max_x = max(all_x)
+        
+        # Зеркально отражаем (чтобы S1 был слева)
+        for name, data in pos_map.items():
+            if data['type'] == 'strand':
+                data['x'] = max_x + min_x - data['x']
+        
+        # Обновляем strand_x_positions после отражения
+        for name, data in pos_map.items():
+            if data['type'] == 'strand':
+                strand_x_positions[data['strand_idx']] = data['x']
+    
+    # =================================================================
+    # ПОЗИЦИОНИРОВАНИЕ СПИРАЛЕЙ С ИСКУССТВЕННЫМ РАЗВЕДЕНИЕМ
+    # =================================================================
     helices = [e for e in elements if e['type'] == 'helix']
-    helices.sort(key=lambda h: h['start'])
-    helix_groups = {}
-
+    print(f"Позиционирование {len(helices)} спиралей")
+    
+    # Сначала размещаем все спирали на базовых позициях
+    helix_positions = []
     for helix in helices:
+        # Находим базовую X координату
+        min_dist = float('inf')
+        base_x = 0
+        for strand_name, s_data in pos_map.items():
+            if s_data['type'] == 'strand':
+                dist = abs(helix['start'] - s_data['start'])
+                if dist < min_dist:
+                    min_dist = dist
+                    base_x = s_data['x']
+        
+        # Если есть контакты, усредняем
         if 'strand_contacts' in helix and helix['strand_contacts']:
             contact_xs = [strand_x_positions[idx] for idx in helix['strand_contacts']
                         if idx in strand_x_positions]
-            base_x = np.mean(contact_xs) if contact_xs else 0
-        else:
-            base_x = 0
-
-        y = 2 if helix['side'] == 'Hu' else 0
-        group_key = (round(base_x * 2) / 2, y)
-
-        if group_key not in helix_groups:
-            helix_groups[group_key] = []
-        helix_groups[group_key].append((helix, base_x))
-
-    for (group_x, group_y), helix_list in helix_groups.items():
-        if len(helix_list) == 1:
-            helix, base_x = helix_list[0]
-            final_x = base_x
-            pos_map[helix['name']] = {
-                'x': final_x,
-                'y': group_y,
-                'direction': None,
-                'start': helix['start'],
-                'end': helix['end'],
-                'distance': helix.get('distance', 0)
-            }
-        else:
-            total_width = 0.8 * (len(helix_list) - 1)
-            start_x = group_x - total_width / 2
-            for idx, (helix, base_x) in enumerate(helix_list):
-                final_x = start_x + idx * 0.8
-                pos_map[helix['name']] = {
-                    'x': final_x,
-                    'y': group_y,
-                    'direction': None,
-                    'start': helix['start'],
-                    'end': helix['end'],
-                    'distance': helix.get('distance', 0)
-                }
-
-    # -----------------------------------------------------------------
-    # 6. СВЯЗИ МЕЖДУ СПИРАЛЯМИ И ТЯЖАМИ
-    # -----------------------------------------------------------------
-    connections = []
-    for elem in elements:
-        if elem['type'] == 'helix' and 'strand_contacts' in elem:
-            for strand_idx in elem['strand_contacts']:
-                for strand_elem in elements:
-                    if strand_elem['type'] == 'strand' and strand_elem['strand_idx'] == strand_idx:
-                        connections.append((elem['name'], strand_elem['name']))
-                        break
-
-    # -----------------------------------------------------------------
-    # 7. ПОРЯДОК В ЦЕПИ
-    # -----------------------------------------------------------------
+            if contact_xs:
+                base_x = np.mean(contact_xs)
+        
+        base_y = 2.2 if helix['side'] == 'Hu' else -0.2
+        
+        helix_positions.append({
+            'name': helix['name'],
+            'helix': helix,
+            'x': base_x,
+            'y': base_y,
+            'side': helix['side']
+        })
+    
+    # Сортируем по X
+    helix_positions.sort(key=lambda x: x['x'])
+    
+    # Разносим пересекающиеся спирали
+    moved = True
+    iteration = 0
+    
+    while moved and iteration < max_iterations:
+        moved = False
+        iteration += 1
+        
+        # Проверяем пересечения спиралей между собой
+        for i in range(len(helix_positions)):
+            for j in range(i+1, len(helix_positions)):
+                pos_i = {'x': helix_positions[i]['x'], 'y': helix_positions[i]['y']}
+                pos_j = {'x': helix_positions[j]['x'], 'y': helix_positions[j]['y']}
+                
+                if elements_intersect(pos_i, pos_j, 1.2):
+                    moved = True
+                    # Раздвигаем по горизонтали
+                    if i < j:
+                        helix_positions[i]['x'] = min(helix_positions[i]['x'], 
+                                                      helix_positions[j]['x'] - 1.5)
+                        helix_positions[j]['x'] = max(helix_positions[j]['x'], 
+                                                      helix_positions[i]['x'] + 1.5)
+                    else:
+                        helix_positions[j]['x'] = min(helix_positions[j]['x'], 
+                                                      helix_positions[i]['x'] - 1.5)
+                        helix_positions[i]['x'] = max(helix_positions[i]['x'], 
+                                                      helix_positions[j]['x'] + 1.5)
+        
+        # Проверяем пересечения спиралей с тяжами
+        for h in helix_positions:
+            for s in strand_positions:
+                pos_h = {'x': h['x'], 'y': h['y']}
+                pos_s = {'x': s['x'], 'y': s['y']}
+                
+                if elements_intersect(pos_h, pos_s, 1.2):
+                    moved = True
+                    # Сдвигаем спираль по вертикали
+                    if h['y'] > 1:  # Hu спираль
+                        h['y'] += 0.3
+                    else:  # Hd спираль
+                        h['y'] -= 0.3
+    
+    # Сохраняем позиции спиралей
+    for hp in helix_positions:
+        pos_map[hp['name']] = {
+            'x': hp['x'],
+            'y': hp['y'],
+            'start': hp['helix']['start'],
+            'end': hp['helix']['end'],
+            'distance': hp['helix'].get('distance', 0),
+            'side': hp['side'],
+            'type': 'helix'
+        }
+    
+    # =================================================================
+    # ОПРЕДЕЛЯЕМ N И C КОНЦЫ
+    # =================================================================
+    if elements:
+        n_element = elements[0]  # первый по последовательности
+        c_element = elements[-1]  # последний по последовательности
+    else:
+        n_element = None
+        c_element = None
+    
+    # =================================================================
+    # ПОСТРОЕНИЕ УМНЫХ СОЕДИНЕНИЙ
+    # =================================================================
     sequence_order = []
     for elem in sorted(elements, key=lambda x: x['start']):
         sequence_order.append(elem['name'])
-
-    # -----------------------------------------------------------------
-    # 8. РИСОВАНИЕ
-    # -----------------------------------------------------------------
-    fig, ax = plt.subplots(figsize=(16, 7))
     
-    strand_color = self.COLORS['strand']
-    hu_color = self.COLORS['Hu']
-    hd_color = self.COLORS['Hd']
-    connection_color = '#7f8c8d'
-    main_path_color = '#8e44ad'
-    text_positions = {}
-
-    # Рисуем тяжи
-    for name, data in pos_map.items():
-        x, y = data['x'], data['y']
-        if name.startswith("S"):
-            marker = '^' if data['direction'] == "UP" else 'v'
-            ax.plot(x, y, marker, markersize=40, color=strand_color,
-                    mfc='white', mew=3.5, zorder=5, alpha=0.9)
-            
-            dir_symbol = "↑" if data['original_direction'] == "UP" else "↓"
-            label = f"{name}{dir_symbol}"
-            
-            text_offset = 0.7 if y >= 1 else -0.7
-            key = (round(x, 1), round(y + text_offset, 1))
-            if key in text_positions:
-                text_offset *= 1.3
-            text_positions[key] = name
-            
-            ax.text(x, y - text_offset, label, ha='center', fontsize=14, fontweight='bold',
-                    color=strand_color, bbox=dict(boxstyle="round,pad=0.3", facecolor="white",
-                                                edgecolor=strand_color, alpha=0.8))
-            
-            ax.text(x, y - text_offset - 0.4, f"{data['start']}-{data['end']}", 
-                    ha='center', fontsize=9, color='black', style='italic', alpha=0.8)
-
-    # Рисуем спирали
-    for name, data in pos_map.items():
-        if not name.startswith("S"):
-            x, y = data['x'], data['y']
-            color = hu_color if "Hu" in name else hd_color
-            
-            ax.plot(x, y, 'o', markersize=35, color=color,
-                    mfc=color, mew=2.5, zorder=5, alpha=0.9)
-            
-            dist_text = f"{data.get('distance', 0):.1f}Å"
-            display_name = name
-            
-            text_offset = -0.9 if "Hd" in name else 0.9
-            key = (round(x, 1), round(y + text_offset, 1))
-            
-            attempts = 0
-            while key in text_positions and attempts < 3:
-                text_offset *= 1.2
-                key = (round(x, 1), round(y + text_offset, 1))
-                attempts += 1
-            text_positions[key] = name
-            
-            ax.text(x, y + text_offset, display_name, ha='center', fontsize=12, fontweight='bold',
-                    color='white', bbox=dict(boxstyle="round,pad=0.3", facecolor=color,
-                                            edgecolor='white', alpha=0.9))
-            
-            ax.text(x, y + text_offset - 0.4, dist_text, ha='center', fontsize=8,
-                    color='white', fontweight='bold', alpha=0.9,
-                    bbox=dict(boxstyle="round,pad=0.1", facecolor=color, alpha=0.7))
-            
-            ax.text(x, y + text_offset - 0.8, f"{data['start']}-{data['end']}", 
-                    ha='center', fontsize=8, color='black', style='italic', alpha=0.8)
-
-    # Рисуем связи спираль-тяж
-    for start, end in connections:
-        if start in pos_map and end in pos_map:
-            x_vals = [pos_map[start]['x'], pos_map[end]['x']]
-            y_vals = [pos_map[start]['y'], pos_map[end]['y']]
-            if x_vals[0] > x_vals[1]:
-                x_vals = [x_vals[1], x_vals[0]]
-                y_vals = [y_vals[1], y_vals[0]]
-            
-            ax.plot(x_vals, y_vals, color=connection_color,
-                    linestyle='--', linewidth=2.0, alpha=0.7, zorder=3)
-
-    # Рисуем путь N→C
+    print(f"Порядок следования: {sequence_order}")
+    
+    # Функция для подсчета пересечений линии с элементами
+    def count_line_intersections(x1, y1, x2, y2, excluded_names):
+        count = 0
+        for t in np.linspace(0, 1, 30):
+            x = x1 + t * (x2 - x1)
+            y = y1 + t * (y2 - y1)
+            for name, data in pos_map.items():
+                if name in excluded_names:
+                    continue
+                dist = np.sqrt((x - data['x'])**2 + (y - data['y'])**2)
+                if dist < 0.8:
+                    count += 1
+                    break
+        return count
+    
+    # Функция для подсчета пересечений дуги с элементами
+    def count_arc_intersections(x1, y1, x2, y2, cy, excluded_names):
+        count = 0
+        for t in np.linspace(0, 1, 40):
+            x = x1 + t * (x2 - x1)
+            y = y1 + t * (y2 - y1) + 4 * (cy - (y1+y2)/2) * t * (1 - t)
+            for name, data in pos_map.items():
+                if name in excluded_names:
+                    continue
+                dist = np.sqrt((x - data['x'])**2 + (y - data['y'])**2)
+                if dist < 0.8:
+                    count += 1
+                    break
+        return count
+    
+    # Собираем информацию о расстояниях между элементами
+    element_starts = {}
+    for elem in elements:
+        element_starts[elem['name']] = elem['start']
+    
+    # Создаем соединения для ВСЕХ последовательных элементов
+    connections = []
+    
     for i in range(len(sequence_order)-1):
         name1, name2 = sequence_order[i], sequence_order[i+1]
         if name1 in pos_map and name2 in pos_map:
             x1, y1 = pos_map[name1]['x'], pos_map[name1]['y']
             x2, y2 = pos_map[name2]['x'], pos_map[name2]['y']
             
-            dx = x2 - x1
-            arc_height = 0.8
+            # Вычисляем расстояние в аминокислотах
+            start1 = element_starts[name1]
+            start2 = element_starts[name2]
+            aa_distance = abs(start2 - start1)
             
-            # Проверяем, не пересекает ли дуга другие элементы
-            for other_name, other_data in pos_map.items():
-                if other_name not in [name1, name2]:
-                    ox, oy = other_data['x'], other_data['y']
-                    if min(x1, x2) < ox < max(x1, x2) and abs(oy - (y1 + y2)/2) < 0.5:
-                        arc_height = 1.2
-                        break
+            # Определяем тип соединения
+            is_large_insertion = aa_distance > 50
+            base_arc_height = 1.0 if is_large_insertion else 0.6
             
-            if abs(dx) > 1.5:
-                control_x = (x1 + x2) / 2
-                control_y = max(y1, y2) + arc_height
+            # Сначала пробуем прямую линию
+            line_intersections = count_line_intersections(x1, y1, x2, y2, [name1, name2])
+            
+            if line_intersections == 0:
+                # Прямая линия идеальна
+                connections.append({
+                    'start': name1,
+                    'end': name2,
+                    'type': 'line',
+                    'params': (x1, y1, x2, y2),
+                    'is_large': is_large_insertion
+                })
+                continue
+            
+            # Пробуем дугу вверх с увеличивающейся высотой
+            best_up_intersections = float('inf')
+            best_up_cy = None
+            
+            for height_mult in [1.0, 1.5, 2.0, 2.5, 3.0]:
+                test_height = base_arc_height * height_mult
+                test_cy = max(y1, y2) + test_height
+                intersections = count_arc_intersections(x1, y1, x2, y2, test_cy, [name1, name2])
                 
-                verts = [(x1, y1), (control_x, control_y), (x2, y2)]
-                codes = [Path.MOVETO, Path.CURVE3, Path.CURVE3]
-                path = Path(verts, codes)
-                patch = patches.PathPatch(path, facecolor='none', edgecolor=main_path_color,
-                                        linewidth=3.0, alpha=0.9, zorder=4)
-                ax.add_patch(patch)
+                if intersections < best_up_intersections:
+                    best_up_intersections = intersections
+                    best_up_cy = test_cy
+                
+                if intersections == 0:
+                    break
+            
+            # Пробуем дугу вниз с увеличивающейся глубиной
+            best_down_intersections = float('inf')
+            best_down_cy = None
+            
+            for height_mult in [1.0, 1.5, 2.0, 2.5, 3.0]:
+                test_height = base_arc_height * height_mult
+                test_cy = min(y1, y2) - test_height
+                intersections = count_arc_intersections(x1, y1, x2, y2, test_cy, [name1, name2])
+                
+                if intersections < best_down_intersections:
+                    best_down_intersections = intersections
+                    best_down_cy = test_cy
+                
+                if intersections == 0:
+                    break
+            
+            # Выбираем лучший вариант
+            if best_up_intersections == 0:
+                connections.append({
+                    'start': name1,
+                    'end': name2,
+                    'type': 'arc',
+                    'params': (x1, y1, x2, y2, best_up_cy),
+                    'is_large': is_large_insertion
+                })
+            elif best_down_intersections == 0:
+                connections.append({
+                    'start': name1,
+                    'end': name2,
+                    'type': 'arc',
+                    'params': (x1, y1, x2, y2, best_down_cy),
+                    'is_large': is_large_insertion
+                })
             else:
-                ax.plot([x1, x2], [y1, y2], color=main_path_color,
-                        linewidth=3.0, alpha=0.9, zorder=4)
-
-    # Метки N и C
-    if sequence_order:
-        first_elem = sequence_order[0]
-        if first_elem in pos_map:
-            x_n, y_n = pos_map[first_elem]['x'], pos_map[first_elem]['y']
-            ax.text(x_n - 0.4, y_n + 0.4, 'N', fontsize=16, fontweight='bold', color='#2c3e50',
-                    bbox=dict(boxstyle="round,pad=0.2", facecolor="yellow", alpha=1.0, edgecolor='none'),
-                    zorder=20, ha='center', va='center')
-            ax.text(x_n - 0.4, y_n + 0.1, f"{pos_map[first_elem]['start']}",
-                    fontsize=8, color='#2c3e50', ha='center', va='center', alpha=0.7)
-        
-        last_elem = sequence_order[-1]
-        if last_elem in pos_map:
-            x_c, y_c = pos_map[last_elem]['x'], pos_map[last_elem]['y']
-            ax.text(x_c + 0.4, y_c + 0.4, 'C', fontsize=16, fontweight='bold', color='#2c3e50',
-                    bbox=dict(boxstyle="round,pad=0.2", facecolor="yellow", alpha=1.0, edgecolor='none'),
-                    zorder=20, ha='center', va='center')
-            ax.text(x_c + 0.4, y_c + 0.1, f"{pos_map[last_elem]['end']}",
-                    fontsize=8, color='#2c3e50', ha='center', va='center', alpha=0.7)
-
-    # Легенда
-    legend_elements = [
-        plt.Line2D([0], [0], marker='^', color='w', markerfacecolor='white',
-                    markeredgecolor=strand_color, markersize=15, markeredgewidth=2,
-                    label='Beta-strand (UP)'),
-        plt.Line2D([0], [0], marker='v', color='w', markerfacecolor='white',
-                    markeredgecolor=strand_color, markersize=15, markeredgewidth=2,
-                    label='Beta-strand (DOWN)'),
-        plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=hu_color,
-                    markersize=15, label='Helix (Hu) - Up'),
-        plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=hd_color,
-                    markersize=15, label='Helix (Hd) - Down'),
-        plt.Line2D([0], [0], color=main_path_color, lw=3, label='N→C chain'),
-        plt.Line2D([0], [0], color=connection_color, linestyle='--',
-                    lw=2, label='Spatial contacts')
-    ]
-
-    ax.legend(handles=legend_elements, loc='upper right', fontsize=11, framealpha=0.9)
+                # Выбираем вариант с наименьшим количеством пересечений
+                if best_up_intersections <= best_down_intersections:
+                    connections.append({
+                        'start': name1,
+                        'end': name2,
+                        'type': 'arc',
+                        'params': (x1, y1, x2, y2, best_up_cy),
+                        'is_large': is_large_insertion
+                    })
+                else:
+                    connections.append({
+                        'start': name1,
+                        'end': name2,
+                        'type': 'arc',
+                        'params': (x1, y1, x2, y2, best_down_cy),
+                        'is_large': is_large_insertion
+                    })
     
-    # Настройки графика
-    ax.set_xlim(-1.5, x_pos + 0.5)
-    ax.set_ylim(-1.5, 4.5)
-    ax.set_axis_off()
+    print(f"Создано {len(connections)} соединений")
     
-    # Заголовок
-    title_text = f"2D Protein Topology: Chain {motif_chain}\n"
-    title_text += f"Motif: {motif_text} ({motif_res}) | S4: {path_map['S4'][0]}-{path_map['S4'][1]}"
-    plt.title(title_text, fontsize=16, fontweight='bold', pad=20)
+    # =================================================================
+    # СОЗДАНИЕ PLOTLY ФИГУРЫ
+    # =================================================================
+    fig = go.Figure()
     
-    # Опорные линии
-    ax.axhline(y=1, color='gray', linestyle=':', alpha=0.3, zorder=0)
-    ax.axhline(y=2, color='gray', linestyle=':', alpha=0.3, zorder=0)
-    ax.axhline(y=0, color='gray', linestyle=':', alpha=0.3, zorder=0)
+    # Добавляем ВСЕ тяжи
+    for name, data in pos_map.items():
+        if data['type'] == 'strand':
+            symbol = 'triangle-up' if data['original_direction'] == 'UP' else 'triangle-down'
+            
+            # Определяем цвет (золотой для N/C)
+            if n_element and n_element['name'] == name:
+                marker_color = '#FFD700'  # золотой для N-конца
+                text = 'N'
+            elif c_element and c_element['name'] == name:
+                marker_color = '#FFA500'  # оранжевый для C-конца
+                text = 'C'
+            else:
+                marker_color = '#1a5276'
+                text = ''
+            
+            fig.add_trace(go.Scatter(
+                x=[data['x']],
+                y=[data['y']],
+                mode='markers+text',
+                marker=dict(
+                    symbol=symbol,
+                    size=45,
+                    color=marker_color,
+                    line=dict(color='white', width=2)
+                ),
+                text=[text],
+                textposition="middle center",
+                textfont=dict(size=14, color='white', family='Arial Black'),
+                name=name,
+                showlegend=False,
+                hovertemplate=f"<b>{name}</b><br>Range: {data['start']}-{data['end']}<br>Direction: {data['original_direction']}<extra></extra>"
+            ))
     
-    plt.tight_layout()
-    plt.show()
+    # Добавляем ВСЕ спирали
+    for name, data in pos_map.items():
+        if data['type'] == 'helix':
+            # Определяем цвет
+            if n_element and n_element['name'] == name:
+                marker_color = '#FFD700'  # золотой для N-конца
+                text = 'N'
+            elif c_element and c_element['name'] == name:
+                marker_color = '#FFA500'  # оранжевый для C-конца
+                text = 'C'
+            else:
+                if data['side'] == 'Hu':
+                    marker_color = '#27ae60'  # зеленый
+                else:
+                    marker_color = '#e74c3c'  # красный
+                text = ''
+            
+            fig.add_trace(go.Scatter(
+                x=[data['x']],
+                y=[data['y']],
+                mode='markers+text',
+                marker=dict(
+                    symbol='circle',
+                    size=40,
+                    color=marker_color,
+                    line=dict(color='white', width=2)
+                ),
+                text=[text],
+                textposition="middle center",
+                textfont=dict(size=14, color='white', family='Arial Black'),
+                name=name,
+                showlegend=False,
+                hovertemplate=f"<b>{name}</b><br>Range: {data['start']}-{data['end']}<br>Distance: {data.get('distance', 0):.1f}Å<extra></extra>"
+            ))
+    
+    # Добавляем соединения
+    for conn in connections:
+        if conn['type'] == 'line':
+            x1, y1, x2, y2 = conn['params']
+            line_color = '#ff9900' if conn['is_large'] else '#8e44ad'
+            line_width = 4 if conn['is_large'] else 3
+            line_dash = 'dot' if conn['is_large'] else 'solid'
+            
+            fig.add_trace(go.Scatter(
+                x=[x1, x2],
+                y=[y1, y2],
+                mode='lines',
+                line=dict(color=line_color, width=line_width, dash=line_dash),
+                showlegend=False,
+                hoverinfo='none'
+            ))
+            
+        elif conn['type'] == 'arc':
+            x1, y1, x2, y2, cy = conn['params']
+            
+            t = np.linspace(0, 1, 30)
+            x = x1 + t * (x2 - x1)
+            y = y1 + t * (y2 - y1) + 0.5 * (cy - (y1+y2)/2) * np.sin(t * np.pi)
+            
+            line_color = '#ff9900' if conn['is_large'] else '#8e44ad'
+            line_width = 4 if conn['is_large'] else 3
+            line_dash = 'dot' if conn['is_large'] else 'solid'
+            
+            fig.add_trace(go.Scatter(
+                x=x, y=y,
+                mode='lines',
+                line=dict(color=line_color, width=line_width, dash=line_dash),
+                showlegend=False,
+                hoverinfo='none'
+            ))
+    
+    # =================================================================
+    # ДОБАВЛЯЕМ ЛЕГЕНДУ
+    # =================================================================
+    # Добавляем невидимые трейсы для легенды
+    fig.add_trace(go.Scatter(
+        x=[None], y=[None],
+        mode='lines',
+        line=dict(color='#8e44ad', width=3),
+        name='N→C chain (normal)',
+        showlegend=True
+    ))
+    
+    fig.add_trace(go.Scatter(
+        x=[None], y=[None],
+        mode='lines',
+        line=dict(color='#ff9900', width=4, dash='dot'),
+        name='N→C chain (large insertion >50aa)',
+        showlegend=True
+    ))
+    
+    fig.add_trace(go.Scatter(
+        x=[None], y=[None],
+        mode='markers',
+        marker=dict(symbol='triangle-up', size=15, color='#1a5276'),
+        name='Beta-strand UP',
+        showlegend=True
+    ))
+    
+    fig.add_trace(go.Scatter(
+        x=[None], y=[None],
+        mode='markers',
+        marker=dict(symbol='triangle-down', size=15, color='#1a5276'),
+        name='Beta-strand DOWN',
+        showlegend=True
+    ))
+    
+    fig.add_trace(go.Scatter(
+        x=[None], y=[None],
+        mode='markers',
+        marker=dict(symbol='circle', size=15, color='#27ae60'),
+        name='Helix Hu (Up)',
+        showlegend=True
+    ))
+    
+    fig.add_trace(go.Scatter(
+        x=[None], y=[None],
+        mode='markers',
+        marker=dict(symbol='circle', size=15, color='#e74c3c'),
+        name='Helix Hd (Down)',
+        showlegend=True
+    ))
+    
+    fig.add_trace(go.Scatter(
+        x=[None], y=[None],
+        mode='markers',
+        marker=dict(symbol='triangle-up', size=15, color='#FFD700', line=dict(color='black', width=1)),
+        name='N-terminus',
+        showlegend=True
+    ))
+    
+    fig.add_trace(go.Scatter(
+        x=[None], y=[None],
+        mode='markers',
+        marker=dict(symbol='triangle-down', size=15, color='#FFA500', line=dict(color='black', width=1)),
+        name='C-terminus',
+        showlegend=True
+    ))
+    
+    # Настройка макета
+    all_x = [data['x'] for data in pos_map.values()]
+    max_x = max(all_x) if all_x else 10
+    min_x = min(all_x) if all_x else 0
+    
+    fig.update_layout(
+        title=f"2D Protein Topology: Chain {result['chain']}<br>Motif: {self.motif_info['text']} ({self.motif_info['res']}) | S4: {path_map['S4'][0]}-{path_map['S4'][1]}",
+        title_font_size=18,
+        width=1400,
+        height=900,
+        showlegend=True,
+        hovermode='closest',
+        plot_bgcolor='white',
+        xaxis=dict(
+            showgrid=False,
+            zeroline=False,
+            visible=False,
+            range=[min_x - 2, max_x + 2]
+        ),
+        yaxis=dict(
+            showgrid=False,
+            zeroline=False,
+            visible=False,
+            range=[-3, 6]
+        ),
+        legend=dict(
+            groupclick="toggleitem",
+            yanchor="top",
+            y=0.99,
+            xanchor="right",
+            x=0.99,
+            bgcolor='rgba(255,255,255,0.8)',
+            font=dict(size=12)
+        )
+    )
+    
+    # Добавляем очень бледные опорные линии
+    fig.add_hline(y=1, line_dash="dot", line_color="lightgray", opacity=0.1)
+    fig.add_hline(y=2.2, line_dash="dot", line_color="lightgray", opacity=0.1)
+    fig.add_hline(y=-0.2, line_dash="dot", line_color="lightgray", opacity=0.1)
+    
+    print("Фигура создана успешно")
     return fig
 
-MTaseAnalyzer.visualize_topology_from_analysis = visualize_topology_from_analysis
+
+def _merge_display_helices(self, elements, result):
+    """Объединение соседних спиралей для отображения"""
+    return elements
+
+
+# Прикрепляем методы к классу
+MTaseAnalyzer.visualize_topology_interactive = visualize_topology_interactive
+MTaseAnalyzer._merge_display_helices = _merge_display_helices

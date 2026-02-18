@@ -3,3 +3,4 @@ numpy
 scipy
 matplotlib
 py3Dmol
+plotly

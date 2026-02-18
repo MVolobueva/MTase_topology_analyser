@@ -4,6 +4,12 @@ import collections
 import re
 from scipy.spatial import distance_matrix
 
+import numpy as np
+import os
+import collections
+import re
+from scipy.spatial import distance_matrix
+
 class MTaseAnalyzer:
     def __init__(self, contact_dist=5.2, helix_radius=20, max_loop=5, min_helix_length=4):
         self.CONTACT_DIST = contact_dist
@@ -94,8 +100,18 @@ class MTaseAnalyzer:
 
         return True
 
-    def find_all_motifs(self):
-        """Найти все мотивы во всех цепях"""
+    def find_all_motifs(self, custom_patterns=None):
+        """
+        Найти все мотивы во всех цепях
+        Если custom_patterns передан, использует их вместо стандартных
+        """
+        # Сохраняем оригинальные паттерны
+        original_patterns = self.MOTIF_PATTERNS
+        
+        # Если переданы пользовательские паттерны, временно заменяем
+        if custom_patterns:
+            self.MOTIF_PATTERNS = custom_patterns
+        
         motifs = []
 
         for pattern in self.MOTIF_PATTERNS:
@@ -130,10 +146,21 @@ class MTaseAnalyzer:
                                     's4_end': last_num
                                 })
                                 print(f"  ✅ Цепь {chain}: мотив {m.group()} ({motif_res_num}), S4 {last_num} (глобальный индекс {idx})")
+        
+        # Восстанавливаем оригинальные паттерны, если они были изменены
+        if custom_patterns:
+            self.MOTIF_PATTERNS = original_patterns
 
         print(f"\n📊 Всего найдено мотивов: {len(motifs)}")
         return motifs
 
+    def find_motifs_with_custom_patterns(self, custom_patterns):
+        """
+        Удобный метод для поиска с пользовательскими паттернами
+        """
+        return self.find_all_motifs(custom_patterns=custom_patterns)
+
+    # ... остальные методы класса ...
     def _merge_helices(self, helices):
         """Объединение перекрывающихся спиралей по 3D расстоянию"""
         if not helices:
@@ -262,4 +289,5 @@ class MTaseAnalyzer:
             p_list.append(nxt)
             visited.add(nxt)
         return p_list
+    
 

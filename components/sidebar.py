@@ -2,29 +2,7 @@ import streamlit as st
 
 def render_sidebar():
     with st.sidebar:
-        st.header("📥 **Input**")
-        
-        # Предустановленные MTases
-        st.subheader("Pre-studied MTases")
-        preset_mtases = {
-            "None": None,
-            "M.TaqI (PDB: 1G38)": "1G38",
-            "M.HhaI (PDB: 5MHT)": "5MHT",
-            "M.EcoRI (PDB: 1QPS)": "1QPS",
-            "M.EcoRV (PDB: 4XQK)": "4XQK",
-            "M.Bse634I (PDB: 1KRA)": "1KRA",
-            "M.Thermophilus (PDB: 7M6B)": "7M6B",
-            "Custom structure": "custom"
-        }
-        
-        selected_preset = st.selectbox(
-            "Select MTase:",
-            list(preset_mtases.keys()),
-            index=0,
-            key="preset"
-        )
-        
-        st.markdown("---")
+        st.header("**Input**")
         
         # Выбор источника структуры
         st.subheader("Structure Input")
@@ -37,7 +15,6 @@ def render_sidebar():
         if input_type == "PDB ID":
             pdb_id = st.text_input(
                 "Enter PDB ID:",
-                value=preset_mtases[selected_preset] if selected_preset != "None" and preset_mtases[selected_preset] != "custom" else "",
                 placeholder="4XQK",
                 key="pdb_id"
             ).upper()
@@ -76,7 +53,7 @@ def render_sidebar():
         
         # Кнопка запуска
         run_button = st.button(
-            "🔬 **Run Analysis**", 
+            "**Run Analysis**", 
             type="primary", 
             use_container_width=True,
             key="run_button"

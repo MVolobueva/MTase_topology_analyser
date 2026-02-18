@@ -4,14 +4,16 @@ import numpy as np
 from scipy.spatial import distance_matrix
 
 def analyze_topology(self, motif_data=None):
-    """АНАЛИЗ ТОПОЛОГИИ - ТВОЙ ПРОВЕРЕННЫЙ АЛГОРИТМ"""
+    """АНАЛИЗ ТОПОЛОГИИ - ИЗ СТАРОГО РАБОЧЕГО КОДА"""
     if motif_data:
         self.motif_info = motif_data
     if not self.motif_info:
         print("Ошибка: каталитический мотив не найден")
         return None
+    
     s3_idx = None
     s5_idx = None
+    
     # Очищаем словари спиралей
     self.helix_sides = {}
     self.helix_distances = {}
@@ -85,9 +87,8 @@ def analyze_topology(self, motif_data=None):
                 self.adj[j].add(i)
 
     # 6. Фильтруем спирали
-    self.helices = [h for h in self.helices if h and self._get_chain(h[0]) == motif_chain]
+    self.helices = [h for h in original_helices if h and self._get_chain(h[0]) == motif_chain]
     print(f"   Спиралей в цепи: {len(self.helices)}")
-
 
     # =================================================================
     # ОСНОВНОЙ АНАЛИЗ
@@ -304,13 +305,14 @@ def analyze_topology(self, motif_data=None):
         self.helices = original_helices
         return None
 
-    # Создаем систему координат
+    # Создаем систему координат (из core.py)
     self._setup_coordinate_system(s4_idx, s3_idx)
 
     # =================================================================
-    # ОПРЕДЕЛЕНИЕ СТОРОН СПИРАЛЕЙ
+    # ОПРЕДЕЛЕНИЕ СТОРОН СПИРАЛЕЙ - КАК В СТАРОМ КОДЕ!
     # =================================================================
     print(f"\n🔍 ОПРЕДЕЛЕНИЕ СТОРОН СПИРАЛЕЙ ПО СИСТЕМЕ КООРДИНАТ:")
+    allowed_strands = {'S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7'}
 
     for h_keys in self.helices:
         if len(h_keys) < self.MIN_HELIX_LENGTH:
@@ -320,14 +322,25 @@ def analyze_topology(self, motif_data=None):
         h_center = h_c.mean(axis=0)
         h_start = self._get_res_num(h_keys[0])
         h_end = self._get_res_num(h_keys[-1])
+        
 
+        # Находим ближайший тяж и ЕГО ЦЕНТР
         min_dist = float('inf')
         nearest_idx = None
         nearest_center = None
+
         for idx in full_path:
+            # Получаем имя тяжа
+            s_name = strand_names.get(idx, f"S?({idx})")
+            
+            # Пропускаем S0 и др.
+            if s_name not in allowed_strands:
+                continue
+                
             s_coords = np.array([self.res_data[key]['coords'] for key in self.strands[idx]])
             s_center = s_coords.mean(axis=0)
             dist = np.linalg.norm(h_center - s_center)
+            
             if dist < min_dist:
                 min_dist = dist
                 nearest_idx = idx
@@ -336,6 +349,7 @@ def analyze_topology(self, motif_data=None):
         if min_dist < self.HELIX_RADIUS:
             nearest_name = strand_names.get(nearest_idx, f"S?({nearest_idx})")
             
+            # Используем правильную функцию из старого кода!
             side, proj = self._get_helix_side_by_coords(h_center, nearest_center)
 
             self.helix_sides[h_start] = side
@@ -449,6 +463,9 @@ def analyze_topology(self, motif_data=None):
         'coord_system': self.coord_system
     }
 
+    # Добавляем обратную карту для удобства
+    result['strand_to_idx'] = {name: idx for idx, name in strand_names.items()}
+    
     # Восстанавливаем оригиналы
     self.strands = original_strands
     self.adj = original_adj
@@ -458,10 +475,10 @@ def analyze_topology(self, motif_data=None):
     self.strand_names = None
 
     return result
-# =====================================================================
-# ЛИНЕЙНАЯ ТОПОЛОГИЯ
-# =====================================================================
+
+
 def print_linear_topology_from_result(self, result):
+    """ЛИНЕЙНАЯ ТОПОЛОГИЯ (как в старом коде)"""
     if not result:
         return
     full_path = result['full_path']
@@ -513,5 +530,39 @@ def print_linear_topology_from_result(self, result):
     print(" — ".join([name for _, name in all_elements]))
     print('='*80)
 
+
+def filter_motifs_by_topology(self, motifs):
+    """Фильтрация мотивов по S2=DOWN"""
+    filtered = []
+    
+    print("\n🔍 Фильтрация мотивов по топологии:")
+    
+    for motif in motifs:
+        result = self.analyze_topology(motif_data=motif)
+        
+        if not result:
+            continue
+        
+        # Проверяем S2=DOWN
+        s2_direction = None
+        
+        for idx, name in result['strand_names'].items():
+            if name == 'S2':
+                strand = result['strands'][idx]
+                vi = self._get_strand_vector(strand)
+                s2_direction = "UP" if np.dot(vi, result['v4']) > 0 else "DOWN"
+                break
+        
+        if s2_direction == 'DOWN':
+            filtered.append(motif)
+            print(f"  ✅ {motif['text']} ({motif['res']}) - S2={s2_direction}")
+        else:
+            print(f"  ❌ {motif['text']} ({motif['res']}) - S2={s2_direction}")
+    
+    return filtered
+
+
+# Прикрепляем методы к классу
 MTaseAnalyzer.analyze_topology = analyze_topology
 MTaseAnalyzer.print_linear_topology_from_result = print_linear_topology_from_result
+MTaseAnalyzer.filter_motifs_by_topology = filter_motifs_by_topology

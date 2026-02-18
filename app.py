@@ -1,6 +1,7 @@
 import streamlit as st
 from components.sidebar import render_sidebar
-from pages import analysis_page, documentation_page
+from pages.analysis_page import show as show_analysis  # ✅ правильный импорт
+from pages.documentation_page import show as show_docs
 
 # Конфигурация страницы
 st.set_page_config(
@@ -20,6 +21,6 @@ render_sidebar()
 page = st.sidebar.radio("Navigate", ["Analysis", "Documentation"])
 
 if page == "Analysis":
-    analysis_page.show()
+    show_analysis()  # ✅ вызываем правильную функцию
 else:
-    documentation_page.show()
+    show_docs()
