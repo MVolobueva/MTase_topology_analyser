@@ -2,10 +2,15 @@ import os
 import tempfile
 import urllib.request
 import subprocess
+import stat
+import streamlit as st
+
+# 1. Указываем путь к твоему файлу mkdssp, который лежит в корне проекта
+DSSP_BIN = os.path.join(os.getcwd(), "mkdssp")
 
 def download_structure(identifier, source='pdb'):
-    """Download structure and generate DSSP"""
-    identifier = identifier.strip()
+    """Загрузка структуры и запуск локального DSSP"""
+    identifier = identifier.strip().upper()
     temp_dir = tempfile.mkdtemp()
     
     try:
@@ -20,15 +25,31 @@ def download_structure(identifier, source='pdb'):
         urllib.request.urlretrieve(url, pdb_file)
         
     except Exception as e:
-        print(f"Error downloading: {e}")
+        st.error(f"Ошибка загрузки: {e}")
         return None
     
     dssp_file = os.path.join(temp_dir, f"{identifier}.dssp")
-    result = subprocess.run(['dssp', pdb_file, dssp_file], 
-                           capture_output=True, text=True)
+
+    # 2. Даем права на запуск файла mkdssp (обязательно для Linux/Streamlit)
+    if os.path.exists(DSSP_BIN):
+        try:
+            current_mode = os.stat(DSSP_BIN).st_mode
+            os.chmod(DSSP_BIN, current_mode | stat.S_IEXEC)
+        except Exception as e:
+            print(f"Предупреждение chmod: {e}")
+    else:
+        st.error("Файл mkdssp не найден в корне проекта!")
+        return None
+
+
+    result = subprocess.run(
+        [DSSP_BIN, pdb_file, dssp_file], 
+        capture_output=True, 
+        text=True
+    )
     
     if result.returncode != 0:
-        print(f"DSSP error: {result.stderr}")
+        st.error(f"DSSP Error: {result.stderr}")
         return None
         
     return {
@@ -38,30 +59,31 @@ def download_structure(identifier, source='pdb'):
         'source': source
     }
 
-# 👇 ДОБАВЬ ЭТУ ФУНКЦИЮ
 def parse_uploaded_file(uploaded_file):
-    """Parse uploaded PDB file and generate DSSP"""
-    import tempfile
-    import os
-    import subprocess
-    
+    """Обработка загруженного PDB файла"""
     temp_dir = tempfile.mkdtemp()
     
-    # Save uploaded file
     pdb_file = os.path.join(temp_dir, uploaded_file.name)
     with open(pdb_file, 'wb') as f:
         f.write(uploaded_file.getvalue())
     
-    # Generate DSSP
     dssp_file = os.path.join(temp_dir, 'uploaded.dssp')
-    result = subprocess.run(['dssp', pdb_file, dssp_file], 
-                           capture_output=True, text=True)
+
+    # Даем права на запуск
+    if os.path.exists(DSSP_BIN):
+        os.chmod(DSSP_BIN, os.stat(DSSP_BIN).st_mode | stat.S_IEXEC)
+
+    # Запуск
+    result = subprocess.run(
+        [DSSP_BIN, pdb_file, dssp_file], 
+        capture_output=True, 
+        text=True
+    )
     
     if result.returncode != 0:
-        print(f"DSSP error: {result.stderr}")
+        st.error(f"DSSP Error: {result.stderr}")
         return None
     
-    # 👇 ВОЗВРАЩАЕМ СЛОВАРЬ!
     return {
         'dssp': dssp_file,
         'pdb': pdb_file
