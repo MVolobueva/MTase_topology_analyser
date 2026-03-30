@@ -41,11 +41,16 @@ def download_structure(identifier, source='pdb'):
         st.error("Файл mkdssp не найден в корне проекта!")
         return None
 
+    # Создаем копию окружения и добавляем текущую папку в путь поиска библиотек
+    env = os.environ.copy()
+    env["LD_LIBRARY_PATH"] = os.getcwd() + ":" + env.get("LD_LIBRARY_PATH", "")
+
+
 
     result = subprocess.run(
         [DSSP_BIN, pdb_file, dssp_file], 
         capture_output=True, 
-        text=True
+        text=True, env=env
     )
     
     if result.returncode != 0:
@@ -72,12 +77,13 @@ def parse_uploaded_file(uploaded_file):
     # Даем права на запуск
     if os.path.exists(DSSP_BIN):
         os.chmod(DSSP_BIN, os.stat(DSSP_BIN).st_mode | stat.S_IEXEC)
-
+    env = os.environ.copy()
+    env["LD_LIBRARY_PATH"] = os.getcwd() + ":" + env.get("LD_LIBRARY_PATH", "")
     # Запуск
     result = subprocess.run(
         [DSSP_BIN, pdb_file, dssp_file], 
         capture_output=True, 
-        text=True
+        text=True, env=env
     )
     
     if result.returncode != 0:
