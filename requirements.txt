@@ -4,4 +4,3 @@ scipy
 matplotlib
 py3Dmol
 plotly
-shutil
