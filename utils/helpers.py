@@ -73,7 +73,7 @@ def parse_uploaded_file(uploaded_file):
     cmd = get_dssp_command()
     
     # Пробуем запустить с флагом --classic
-    result = subprocess.run([cmd, '--classic', pdb_file, dssp_file], 
+    result = subprocess.run([cmd, '--classic', '--not-use-dictionary', pdb_file, dssp_file], 
                            capture_output=True, text=True)
     
     if result.returncode != 0:
