@@ -38,8 +38,9 @@ def download_structure(identifier, source='pdb'):
     cmd = get_dssp_command()
     
     # Флаг --classic нужен для совместимости с парсерами, если версия DSSP >= 4.0
-    result = subprocess.run([cmd, '--classic', pdb_file, dssp_file], 
-                           capture_output=True, text=True)
+    # Добавьте флаг '--not-use-dictionary' внутрь списка аргументов:
+    result = subprocess.run([cmd, '--classic', '--not-use-dictionary', pdb_file, dssp_file], capture_output=True, text=True)
+
     
     # Если --classic не поддерживается (совсем старая версия), пробуем без него
     if result.returncode != 0:
