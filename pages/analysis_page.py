@@ -131,12 +131,19 @@ def show():
                                     break
                         result['strand_sequence'] = ' → '.join(strand_sequence)
                         
-                        # Получаем координаты листа (первый и последний тяж)
+                        # Получаем координаты листа (первый и последний тяж в N→C порядке)
                         if result['full_path']:
-                            first_idx = result['full_path'][0]
-                            last_idx = result['full_path'][-1]
-                            first_strand = result['strands'][first_idx]
-                            last_strand = result['strands'][last_idx]
+                            # Сортируем тяжи по стартовой позиции
+                            strands_with_pos = []
+                            for idx in result['full_path']:
+                                strand = result['strands'][idx]
+                                start_pos = analyzer._get_res_num(strand[0])
+                                strands_with_pos.append((start_pos, idx, strand))
+                            
+                            strands_with_pos.sort(key=lambda x: x[0])  # Сортируем по start_pos
+                            
+                            first_strand = strands_with_pos[0][2]
+                            last_strand = strands_with_pos[-1][2]
                             result['sheet_start'] = analyzer._get_res_num(first_strand[0])
                             result['sheet_end'] = analyzer._get_res_num(last_strand[-1])
                         else:
