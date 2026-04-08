@@ -212,16 +212,7 @@ def show():
             print(f"Последовательность: {strand_sequence_str}")
             
             # Получаем координаты листа
-            if result['full_path']:
-                first_idx = result['full_path'][0]
-                last_idx = result['full_path'][-1]
-                first_strand = result['strands'][first_idx]
-                last_strand = result['strands'][last_idx]
-                sheet_start = st.session_state.analyzer._get_res_num(first_strand[0])
-                sheet_end = st.session_state.analyzer._get_res_num(last_strand[-1])
-                sheet_range = f"{sheet_start}-{sheet_end}"
-            else:
-                sheet_range = "N/A"
+            sheet_range = data['sheet_range']
             
             table_data.append({
                 'Chain': data['display_chain'],
@@ -275,26 +266,35 @@ def show():
                 with col1:
                     st.markdown("**N→C Sequence of Strands**")
                     
-                    # Получаем последовательность тяжей с координатами
+                    # Получаем последовательность тяжей с координатами И СТРЕЛКАМИ
                     strand_positions = []
                     for idx in result['full_path']:
                         strand_name = result['strand_names'][idx]
-                        # Получаем первый и последний остаток тяжа
+                        
+                        # Получаем направление тяжа (стрелочку)
+                        orientation = result.get('strand_orientations', {}).get(idx, '')
+                        if orientation == 'antiparallel':
+                            arrow = '↑'
+                        elif orientation == 'parallel':
+                            arrow = '↓'
+                        else:
+                            arrow = ''
+                        
+                        # Получаем координаты
                         first_res = result['strands'][idx][0]
                         last_res = result['strands'][idx][-1]
                         start_num = st.session_state.analyzer._get_res_num(first_res)
                         end_num = st.session_state.analyzer._get_res_num(last_res)
-                        strand_positions.append((start_num, f"{strand_name}[{start_num}-{end_num}]"))
+                        strand_positions.append((start_num, f"{strand_name}{arrow}[{start_num}-{end_num}]"))
                     
                     # Сортируем по start_num
                     strand_positions.sort(key=lambda x: x[0])
                     
-                    # Формируем строку с проверкой на большие разрывы
+                    # Формируем строку с BIG LOOP
                     sequence_parts = []
                     for i, (start, part) in enumerate(strand_positions):
                         sequence_parts.append(part)
                         
-                        # Проверяем разрыв до следующего
                         if i < len(strand_positions) - 1:
                             next_start = strand_positions[i+1][0]
                             if next_start - start > 50:
@@ -302,7 +302,7 @@ def show():
                     
                     strand_sequence_str = ' — '.join(sequence_parts)
                     st.info(f"**{strand_sequence_str}**")
-                    st.caption("Order of beta-strands from N to C terminus. 🔴 BIG LOOP indicates insertion >50 amino acids between consecutive strands.")
+                    st.caption("Order of beta-strands from N to C terminus. ↑ antiparallel, ↓ parallel. 🔴 BIG LOOP indicates insertion >50 amino acids between consecutive strands.")
                 
                 with col2:
                     st.markdown("**Linear Topology with All Elements**")

@@ -8,6 +8,19 @@ import streamlit as st
 # 1. Указываем путь к твоему файлу mkdssp, который лежит в корне проекта
 DSSP_BIN = os.path.join(os.getcwd(), "mkdssp")
 
+# Функция для удаления строки DBREF, т.к. dssp иногда неправильно её считывает и выдает ошибку, сама строка не несет информации необходимой
+def clean_pdb_file(pdb_path):
+    """Удаляет строки DBREF и REMARK из PDB файла"""
+    with open(pdb_path, 'r') as f:
+        lines = f.readlines()
+    
+    cleaned = [line for line in lines if not line.startswith(('DBREF', 'REMARK'))]
+    
+    with open(pdb_path, 'w') as f:
+        f.writelines(cleaned)
+    
+    return pdb_path
+
 def download_structure(identifier, source='pdb'):
     """Загрузка структуры и запуск локального DSSP"""
     identifier = identifier.strip().upper()
@@ -23,6 +36,8 @@ def download_structure(identifier, source='pdb'):
         
         pdb_file = os.path.join(temp_dir, f"{identifier}.pdb")
         urllib.request.urlretrieve(url, pdb_file)
+
+        clean_pdb_file(pdb_file)
         
     except Exception as e:
         st.error(f"Ошибка загрузки: {e}")
@@ -72,6 +87,8 @@ def parse_uploaded_file(uploaded_file):
     with open(pdb_file, 'wb') as f:
         f.write(uploaded_file.getvalue())
     
+    clean_pdb_file(pdb_file)
+
     dssp_file = os.path.join(temp_dir, 'uploaded.dssp')
 
     # Даем права на запуск
