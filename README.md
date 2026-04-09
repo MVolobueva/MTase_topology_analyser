@@ -64,9 +64,17 @@ pip install -r requirements.txt
 chmod +x mkdssp
 ```
 
+
 ## Usage
 
 ### Web Interface (Recommended)
+
+#### Option 1: Use the Deployed Application
+
+Access the live web application at:  
+**[https://mtasetopologyanalyser.streamlit.app/](https://mtasetopologyanalyser.streamlit.app/)**
+
+#### Option 2: Run Locally
 
 Run the Streamlit app:
 ```bash
@@ -87,26 +95,24 @@ To specify custom input/output files:
 python batch_analyze.py input.csv output.csv
 ```
 
-## Input Format
+### Input CSV Format
 
 The batch analyzer accepts a CSV file with **two columns**: `ID` and `Type`
-
-### Supported Types:
 
 | Type | Description | Example ID |
 |------|-------------|------------|
 | `pdb` | PDB database entry | `3S1S` |
 | `alphafold` | AlphaFold model | `A0A7R8ZSU6` |
-| `file` | Local PDB file path | `/path/to/structure.pdb` |
+| `file` | Local PDB file path | `data/structure.pdb` |
 
-### Example `input.csv`:
-
+Example `input.csv`:
 ```csv
 ID,Type
 3S1S,pdb
 A0A7R8ZSU6,alphafold
-examples/1xyz.pdb,file
+examples/mtase_example.pdb,file
 ```
+
 
 ## Output
 
